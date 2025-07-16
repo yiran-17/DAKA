@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>双人打卡APP</title>
+<style>
+  body {
+    font-family: "SimSun", serif;
+    background: #ffe6f2;
+    margin: 0; padding: 0;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; color: #333;
+  }
+  h1 {
+    margin: 20px 0;
+    color: #d6336c;
+  }
+  .calendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+    width: 90vw;
+    max-width: 600px;
+    background: #fce4ec;
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px #f48fb1;
+  }
+  .day {
+    background: white;
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: center;
+    user-select: none;
+    font-weight: bold;
+    transition: background-color 0.2s;
+    position: relative;
+  }
+  .day:hover { background-color: #f8bbd0; }
+  .status-indicator {
+    position: absolute;
+    bottom: 2px; right: 4px;
+    font-size: 12px;
+    color: #d81b60;
+    font-weight: bold;
+  }
+  .modal-bg {
+    display: none; position: fixed;
+    top:0; left:0; right:0; bottom:0;
+    background: rgba(0,0,0,0.4);
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+  .modal {
+    background: #f8bbd0;
+    padding: 20px;
+    border-radius: 10px;
+    width: 90vw;
+    max-width: 500px;
+    box-shadow: 0 0 15px #c2185b;
+    font-family: "SimSun", serif;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .modal h2 { margin-top: 0; color: #880e4f; }
+  label { display: block; margin-top: 10px; font-weight: bold; }
+  textarea {
+    width: 100%; resize: vertical; min-height: 50px;
+    border-radius: 5px; border: none; padding: 6px 8px;
+    font-family: "SimSun", serif;
+  }
+  button {
+    margin-top: 15px;
+    background-color: #d81b60;
+    border: none; color: white;
+    padding: 10px; font-size: 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: "SimSun", serif;
+    transition: background-color 0.3s;
+  }
+  button:hover { background-color: #ad1457; }
+  .close-btn { background: #880e4f; margin-left: 10px; }
+  #accountSelect {
+    margin-bottom: 15px; font-size: 18px;
+    color: #880e4f; font-weight: bold;
+  }
+</style>
+</head>
+<body>
+<h1>双人打卡日历</h1>
+
+<select id="accountSelect">
+  <option value="user1">我是 我</option>
+  <option value="user2">我是 朋友</option>
+</select>
+
+<div class="calendar" id="calendar"></div>
+
+<div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+  <button onclick="exportData()">导出记录</button>
+  <button onclick="openImportDialog()">导入记录</button>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modal">
+    <h2 id="modalDate">日期</h2>
+    <div>
+      <label>我 的任务</label>
+      <textarea id="taskUser1"></textarea>
+      <label>我 的状态</label>
+      <textarea id="moodUser1"></textarea>
+    </div>
+    <hr/>
+    <div>
+      <label>朋友的任务</label>
+      <textarea id="taskUser2"></textarea>
+      <label>朋友的状态</label>
+      <textarea id="moodUser2"></textarea>
+    </div>
+    <div style="margin-top:15px; text-align:right;">
+      <button id="saveBtn">保存</button>
+      <button id="closeBtn" class="close-btn">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="importBg">
+  <div class="modal">
+    <h2>导入记录</h2>
+    <textarea id="importTextarea" placeholder="请粘贴对方的数据JSON..."></textarea>
+    <button onclick="importData()">确定导入</button>
+    <button class="close-btn" onclick="closeImportDialog()">关闭</button>
+  </div>
+</div>
+
+<script>
+const calendarEl = document.getElementById("calendar");
+const modalBg = document.getElementById("modalBg");
+const modalDate = document.getElementById("modalDate");
+const taskUser1 = document.getElementById("taskUser1");
+const moodUser1 = document.getElementById("moodUser1");
+const taskUser2 = document.getElementById("taskUser2");
+const moodUser2 = document.getElementById("moodUser2");
+const saveBtn = document.getElementById("saveBtn");
+const closeBtn = document.getElementById("closeBtn");
+const accountSelect = document.getElementById("accountSelect");
+const importBg = document.getElementById("importBg");
+const importTextarea = document.getElementById("importTextarea");
+
+let selectedDate = null;
+let currentUser = accountSelect.value;
+
+function generateCalendar(year, month) {
+  calendarEl.innerHTML = "";
+  const firstDay = new Date(year, month -1, 1);
+  const lastDay = new Date(year, month, 0);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = lastDay.getDate();
+  for(let i=0; i < startWeekday; i++) calendarEl.appendChild(document.createElement("div"));
+  for(let day=1; day <= daysInMonth; day++) {
+    const dayDiv = document.createElement("div");
+    dayDiv.classList.add("day");
+    dayDiv.textContent = day;
+    const dateStr = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    dayDiv.dataset.date = dateStr;
+    const hasUser1 = localStorage.getItem(`${dateStr}_user1`) !== null;
+    const hasUser2 = localStorage.getItem(`${dateStr}_user2`) !== null;
+    let statusText = "";
+    if(hasUser1) statusText += "√";
+    if(hasUser2) statusText += hasUser1 ? " *" : "*";
+    if(statusText) {
+      const statusSpan = document.createElement("span");
+      statusSpan.classList.add("status-indicator");
+      statusSpan.textContent = statusText;
+      dayDiv.appendChild(statusSpan);
+    }
+    dayDiv.onclick = () => openModal(dateStr);
+    calendarEl.appendChild(dayDiv);
+  }
+}
+
+function openModal(dateStr) {
+  selectedDate = dateStr;
+  modalDate.textContent = selectedDate;
+  loadData(dateStr);
+  const isUser1 = currentUser === "user1";
+  taskUser1.disabled = !isUser1;
+  moodUser1.disabled = !isUser1;
+  taskUser2.disabled = isUser1;
+  moodUser2.disabled = isUser1;
+  modalBg.style.display = "flex";
+}
+
+function closeModal() {
+  modalBg.style.display = "none";
+  selectedDate = null;
+}
+
+function loadData(dateStr) {
+  const dataUser1 = JSON.parse(localStorage.getItem(`${dateStr}_user1`) || "{}");
+  const dataUser2 = JSON.parse(localStorage.getItem(`${dateStr}_user2`) || "{}");
+  taskUser1.value = dataUser1.task || "";
+  moodUser1.value = dataUser1.mood || "";
+  taskUser2.value = dataUser2.task || "";
+  moodUser2.value = dataUser2.mood || "";
+}
+
+saveBtn.onclick = () => {
+  if(!selectedDate) return alert("未选择日期");
+  const key = `${selectedDate}_${currentUser}`;
+  const data = {
+    task: currentUser === "user1" ? taskUser1.value.trim() : taskUser2.value.trim(),
+    mood: currentUser === "user1" ? moodUser1.value.trim() : moodUser2.value.trim()
+  };
+  localStorage.setItem(key, JSON.stringify(data));
+  const now = new Date(selectedDate);
+  generateCalendar(now.getFullYear(), now.getMonth() + 1);
+  closeModal();
+};
+
+closeBtn.onclick = closeModal;
+accountSelect.onchange = () => currentUser = accountSelect.value;
+
+function exportData() {
+  const all = {...localStorage};
+  const filtered = {};
+  for(const k in all) if(k.endsWith("_user1") || k.endsWith("_user2")) filtered[k] = all[k];
+  const str = JSON.stringify(filtered, null, 2);
+  navigator.clipboard.writeText(str).then(() => alert("JSON 已复制，发给朋友导入即可"));
+}
+
+function openImportDialog() {
+  importBg.style.display = "flex";
+  importTextarea.value = "";
+}
+
+function closeImportDialog() {
+  importBg.style.display = "none";
+}
+
+function importData() {
+  try {
+    const obj = JSON.parse(importTextarea.value);
+    for(const k in obj) {
+      if (!localStorage.getItem(k)) localStorage.setItem(k, obj[k]);
+    }
+    alert("已成功导入，如果有重复记录会保留自己的");
+    closeImportDialog();
+    const now = new Date();
+    generateCalendar(now.getFullYear(), now.getMonth() + 1);
+  } catch(e) {
+    alert("导入数据格式错误");
+  }
+}
+
+const now = new Date();
+generateCalendar(now.getFullYear(), now.getMonth() + 1);
+</script>
+</body>
+</html>
